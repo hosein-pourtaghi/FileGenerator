@@ -5,24 +5,44 @@ namespace FileExtractor;
 
 class Program
 {
-    // Supported file extensions
+    // Supported file extensions - expanded for .NET and Angular/JS
     private static readonly Dictionary<string, string> ExtensionMap = new()
     {
+        // JavaScript/TypeScript
         { "json", ".json" },
         { "typescript", ".ts" },
+        { "tsx", ".tsx" },
         { "scss", ".scss" },
         { "html", ".html" },
         { "css", ".css" },
         { "js", ".js" },
-        { "ts", ".ts" }
+        { "jsx", ".jsx" },
+        { "ts", ".ts" },
+        
+        // .NET / C# files
+        { "csharp", ".cs" },
+        { "cs", ".cs" },
+        { "razor", ".cshtml" },
+        { "cshtml", ".cshtml" },
+        { "xaml", ".xaml" },
+        { "config", ".config" },
+        { "csproj", ".csproj" },
+        { "sln", ".sln" },
+        
+        // Additional web files
+        { "vue", ".vue" },
+        { "svelte", ".svelte" },
+        { "yaml", ".yaml" },
+        { "yml", ".yml" },
+        { "xml", ".xml" },
+        { "md", ".md" },
     };
 
     static void Main(string[] args)
     {
         string baseDir = AppDomain.CurrentDomain.BaseDirectory.Split("bin")[0];
-
         string inputFile = Path.Combine(baseDir, "input.txt");
-        string outputDir = Path.Combine(  baseDir , "output");
+        string outputDir = Path.Combine(baseDir, "output");
 
         if (!File.Exists(inputFile))
         {
@@ -36,7 +56,6 @@ class Program
         {
             var files = ParseInputFile(inputFile);
             CreateFiles(files, outputDir);
-
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine($"\n✓ Successfully created {files.Count} files in '{outputDir}' directory");
             Console.ResetColor();
@@ -53,14 +72,13 @@ class Program
     {
         var files = new List<FileDefinition>();
         var lines = File.ReadAllLines(filePath, Encoding.UTF8);
-
         int i = 0;
+
         while (i < lines.Length)
         {
             // Skip empty lines
             while (i < lines.Length && string.IsNullOrWhiteSpace(lines[i]))
                 i++;
-
             if (i >= lines.Length) break;
 
             // Try to identify a file block
@@ -74,79 +92,138 @@ class Program
                 i++;
             }
         }
-
         return files;
     }
 
     static FileDefinition? TryParseFileBlock(string[] lines, ref int startIndex)
     {
-        // We need at least 2 lines: filename and file type
-        if (startIndex + 1 >= lines.Length) return null;
+        if (startIndex >= lines.Length) return null;
 
-        string? fileName = null;
         string? fileType = null;
         string[]? contentLines = null;
 
-        // Try to find filename and type
-        for (int attempt = 0; attempt < 3 && startIndex + attempt < lines.Length; attempt++)
+        // First line should be the file type
+        var potentialType = lines[startIndex].Trim().ToLower();
+        if (ExtensionMap.ContainsKey(potentialType))
         {
-            var potentialName = lines[startIndex + attempt].Trim();
-
-            // Check if this looks like a filename (contains path separators or extension)
-            if (IsLikelyFileName(potentialName))
-            {
-                fileName = potentialName;
-
-                // Look for file type on next line
-                if (startIndex + attempt + 1 < lines.Length)
-                {
-                    var potentialType = lines[startIndex + attempt + 1].Trim().ToLower();
-                    if (ExtensionMap.ContainsKey(potentialType))
-                    {
-                        fileType = potentialType;
-
-                        // Found both, now extract content
-                        int contentStart = startIndex + attempt + 2;
-                        contentLines = ExtractContent(lines, contentStart);
-
-                        startIndex = contentStart + contentLines.Length;
-                        while (startIndex < lines.Length && string.IsNullOrWhiteSpace(lines[startIndex]))
-                            startIndex++;
-
-                        break;
-                    }
-                }
-            }
+            fileType = potentialType;
+            startIndex++;
+        }
+        else
+        {
+            return null;
         }
 
-        if (fileName == null || fileType == null) return null;
+        // Skip empty lines after file type
+        while (startIndex < lines.Length && string.IsNullOrWhiteSpace(lines[startIndex]))
+            startIndex++;
+
+        if (startIndex >= lines.Length) return null;
+
+        // Extract content starting from current position
+        contentLines = ExtractContent(lines, startIndex);
+
+        // The first line of content should contain the output path
+        // Format: // path/to/output/file.ts or /* path/to/output/file.ts */
+        string? outputPath = ExtractOutputPathFromFirstLine(contentLines);
+
+        if (string.IsNullOrEmpty(outputPath))
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"Warning: No output path found in content for file type '{fileType}'. Skipping...");
+            Console.ResetColor();
+            startIndex += contentLines.Length;
+            return null;
+        }
+
+        // Skip past the content we just processed
+        startIndex += contentLines.Length;
+        while (startIndex < lines.Length && string.IsNullOrWhiteSpace(lines[lines.Length > startIndex ? startIndex : startIndex - 1]))
+            startIndex++;
 
         return new FileDefinition
         {
-            FileName = fileName,
+            FileName = outputPath,
             FileType = fileType,
             Content = string.Join(Environment.NewLine, contentLines ?? Array.Empty<string>())
         };
     }
 
-    static bool IsLikelyFileName(string text)
+    /// <summary>
+    /// Extracts the output path from the first line of content.
+    /// Supports formats: // path/to/file.ts, /* path/to/file.ts */, <!-- path/to/file.html -->
+    /// </summary>
+    static string? ExtractOutputPathFromFirstLine(string[] contentLines)
     {
-        if (string.IsNullOrWhiteSpace(text)) return false;
-        if (text.Length > 200) return false;
+        if (contentLines == null || contentLines.Length == 0)
+            return null;
 
-        // Skip if it looks like UI text
-        if (text.Contains("Collapse") || text.Contains("ذخیره") || text.Contains("کپی"))
+        var firstLine = contentLines[0].Trim();
+
+        // Pattern 1: // comment style (C#, TypeScript, JavaScript, SCSS)
+        var match = Regex.Match(firstLine, @"^//\s*(.+)$");
+        if (match.Success)
+        {
+            var path = match.Groups[1].Value.Trim();
+            // Validate it looks like a file path
+            if (IsValidFilePath(path))
+                return path;
+        }
+
+        // Pattern 2: /* comment style */ (CSS, multi-line comments)
+        match = Regex.Match(firstLine, @"^/\*\s*(.+?)\s*\*/$");
+        if (match.Success)
+        {
+            var path = match.Groups[1].Value.Trim();
+            if (IsValidFilePath(path))
+                return path;
+        }
+
+        // Pattern 3: <!-- HTML comment style -->
+        match = Regex.Match(firstLine, @"^<!--\s*(.+?)\s*-->$");
+        if (match.Success)
+        {
+            var path = match.Groups[1].Value.Trim();
+            if (IsValidFilePath(path))
+                return path;
+        }
+
+        // Pattern 4: # comment style (SCSS, Python, YAML)
+        match = Regex.Match(firstLine, @"^#\s*(.+)$");
+        if (match.Success)
+        {
+            var path = match.Groups[1].Value.Trim();
+            if (IsValidFilePath(path))
+                return path;
+        }
+
+        // Pattern 5: @* Razor comment style *@
+        match = Regex.Match(firstLine, @"^@\*\s*(.+?)\s*\*@$");
+        if (match.Success)
+        {
+            var path = match.Groups[1].Value.Trim();
+            if (IsValidFilePath(path))
+                return path;
+        }
+
+        return null;
+    }
+
+    static bool IsValidFilePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
             return false;
 
-        // Skip if it's just a number
-        if (int.TryParse(text, out _)) return false;
+        // Must have a file extension
+        bool hasExtension = Regex.IsMatch(path, @"\.[a-zA-Z0-9]+$");
 
-        // Check for common file patterns
-        bool hasExtension = Regex.IsMatch(text, @"\.(json|ts|tsx|js|jsx|scss|css|html|html)$", RegexOptions.IgnoreCase);
-        bool hasPathSeparator = text.Contains('/') || text.Contains('\\');
-        bool looksLikeComponent = Regex.IsMatch(text, @"^[a-zA-Z][a-zA-Z0-9\-/]*\.(ts|component|service|model|module)\.[a-z]+$");
+        // Should contain path separators or look like a file name
+        bool hasPathSeparator = path.Contains('/') || path.Contains('\\');
 
-        return hasExtension || hasPathSeparator || looksLikeComponent;
+        // Should not be actual code
+        bool looksLikeCode = Regex.IsMatch(path, @"^(using|import|export|const|let|var|function|class|interface|namespace|public|private|protected)\s");
+
+        return hasExtension && (hasPathSeparator || path.Contains('.')) && !looksLikeCode;
     }
 
     static string[] ExtractContent(string[] lines, int startIndex)
@@ -157,22 +234,25 @@ class Program
         {
             string line = lines[i];
 
-            // Stop at empty lines that are followed by another file block
+            // Stop at empty lines that are followed by another file type marker
             if (string.IsNullOrWhiteSpace(line))
             {
-                // Check if next non-empty line looks like a new file
+                // Check if next non-empty line is a file type
                 int nextNonEmpty = i + 1;
                 while (nextNonEmpty < lines.Length && string.IsNullOrWhiteSpace(lines[nextNonEmpty]))
                     nextNonEmpty++;
 
-                if (nextNonEmpty < lines.Length && IsLikelyFileName(lines[nextNonEmpty].Trim()))
-                    break;
-
+                if (nextNonEmpty < lines.Length)
+                {
+                    var nextLine = lines[nextNonEmpty].Trim().ToLower();
+                    if (ExtensionMap.ContainsKey(nextLine))
+                        break;
+                }
                 content.Add(line);
                 continue;
             }
 
-            // Skip metadata lines
+            // Skip metadata/UI lines
             if (line.Trim() == "Collapse" ||
                 line.Trim() == "ذخیره" ||
                 line.Trim() == "کپی" ||
@@ -182,19 +262,17 @@ class Program
                 continue;
             }
 
-            // Skip line numbers (single number or range like "1", "2", "125", "126")
+            // Skip line numbers (single number or range)
             string trimmed = line.Trim();
             if (Regex.IsMatch(trimmed, @"^\d+$"))
                 continue;
 
-            // Skip multiple consecutive line numbers (like "⌄" markers)
+            // Skip navigation markers
             if (trimmed == "⌄" || trimmed == "v" || trimmed == "^")
                 continue;
 
             // Remove leading line numbers from content
-            // Pattern: number followed by space or at start, then content
             string cleanedLine = Regex.Replace(line, @"^\s*\d+\s+", "");
-
             content.Add(cleanedLine);
         }
 
@@ -223,7 +301,6 @@ class Program
 
             // Write file
             File.WriteAllText(fullPath, file.Content, Encoding.UTF8);
-
             Console.WriteLine($"  Created: {file.FileName}");
         }
     }
