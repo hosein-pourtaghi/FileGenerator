@@ -1,0 +1,221 @@
+src/styles.scss (additional styles for Material overrides)
+scss
+
+Collapse
+ذخیره
+کپی
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+⌄
+⌄
+⌄
+⌄
+⌄
+⌄
+// Material overrides
+.mat-mdc-snack-bar-container {
+  &.toast-success {
+    --mdc-snackbar-container-color: #4CAF50;
+    --mdc-snackbar-supporting-text-color: white;
+    --mat-snack-bar-button-color: white;
+  }
+  
+  &.toast-error {
+    --mdc-snackbar-container-color: #F44336;
+    --mdc-snackbar-supporting-text-color: white;
+    --mat-snack-bar-button-color: white;
+  }
+  
+  &.toast-warning {
+    --mdc-snackbar-container-color: #FF9800;
+    --mdc-snackbar-supporting-text-color: white;
+    --mat-snack-bar-button-color: white;
+  }
+  
+  &.toast-info {
+    --mdc-snackbar-container-color: #2196F3;
+    --mdc-snackbar-supporting-text-color: white;
+    --mat-snack-bar-button-color: white;
+  }
+}
+// RTL support
+[dir="rtl"] {
+  .mat-drawer-container {
+    direction: rtl;
+  }
+  
+  .mat-form-field {
+    .mat-mdc-text-field-wrapper {
+      padding-left: 0;
+      padding-right: 12px;
+    }
+    
+    .mat-mdc-form-field-icon-prefix {
+      padding-left: 12px;
+      padding-right: 0;
+    }
+    
+    .mat-mdc-form-field-icon-suffix {
+      padding-left: 0;
+      padding-right: 12px;
+    }
+  }
+  
+  .mat-mdc-table {
+    th, td {
+      text-align: right;
+    }
+  }
+  
+  .mat-mdc-menu-panel {
+    direction: rtl;
+  }
+}
+
+// Material form field enhancements
+.mat-mdc-form-field {
+  &.mat-form-field-invalid {
+    .mat-mdc-form-field-ripple {
+      background-color: vars.$warn-color;
+    }
+  }
+}
+
+// Card hover effect
+.mat-mdc-card {
+  transition: box-shadow 0.3s ease;
+  
+  &:hover {
+    box-shadow: vars.$box-shadow-lg;
+  }
+}
+
+// Button enhancements
+.mat-mdc-button, .mat-mdc-raised-button, .mat-mdc-flat-button {
+  border-radius: 8px !important;
+}
+
+// Dialog enhancements
+.mat-mdc-dialog-container {
+  .mat-mdc-dialog-surface {
+    border-radius: 16px !important;
+    padding: 0 !important;
+  }
+}
+
+// Paginator enhancements
+.mat-mdc-paginator {
+  border-top: 1px solid vars.$border-color;
+  margin-top: 16px;
+}
+
+// Table enhancements
+.mat-mdc-table {
+  .mat-mdc-header-cell {
+    font-weight: 600;
+    color: vars.$text-primary;
+  }
+  
+  .mat-mdc-row {
+    transition: background-color 0.2s;
+    
+    &:hover {
+      background-color: rgba(0, 0, 0, 0.02);
+    }
+  }
+}
+
+// Chip enhancements
+.mat-mdc-chip {
+  border-radius: 16px !important;
+}
+
+// Tooltip enhancements
+.mat-mdc-tooltip {
+  font-size: 0.8rem;
+}
+
+// Progress spinner
+.mat-mdc-progress-spinner {
+  circle {
+    stroke-linecap: round;
+  }
+}
+
+// Menu positioning
+.mat-mdc-menu-panel {
+  border-radius: 8px !important;
+}
+
+// Sidenav
+.mat-drawer-inner-container {
+  overflow: hidden !important;
+}
+
+// Focus visible
+*:focus-visible {
+  outline: 2px solid vars.$primary-color;
+  outline-offset: 2px;
+}
+
+// Selection
+::selection {
+  background: rgba(103, 58, 183, 0.2);
+  color: vars.$text-primary;
+}
+20. Missing Imports Fix
+src/app/features/roles/roles-list/roles-list.component.ts (add FormsModule import)
+typescript
+
+Collapse
+ذخیره
+کپی
+1
+2
+3
+4
+5
+// Add to imports array:
+import { FormsModule } from '@angular/forms';
+
+// In imports array:
+FormsModule,
+21. Create Assets Folder
+src/assets/.gitkeep
+
+Collapse
+ذخیره
+کپی
+1
+# This file keeps the assets folder in git
+22. Create Favicon
+src/favicon.ico
+Create a simple favicon.ico file or use a placeholder.

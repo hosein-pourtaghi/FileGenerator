@@ -1,0 +1,31 @@
+﻿
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./out-tsc/app",
+    "types": []
+  },
+  "files": ["src/main.ts"],
+  "include": ["src/**/*.d.ts"]
+}
+2. Environment Files
+src/environments/environment.ts
+typescript
+
+export const environment = {
+  production: false,
+  apiUrl: 'http://localhost:5000/api'
+};
+src/environments/environment.prod.ts
+typescript
+
+export const environment = {
+  production: true,
+  apiUrl: 'https://your-production-api.com/api'
+};
+3. Global Styles
+src/styles.scss
+scss
+
+  -webkit-font-smoothing: antialiased;
+.mb-3 { margin-bottom: 24px; }

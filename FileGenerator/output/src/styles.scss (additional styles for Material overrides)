@@ -1,0 +1,60 @@
+﻿
+// Material overrides
+.mat-mdc-snack-bar-container {
+  &.toast-success {
+    --mdc-snackbar-container-color: #4CAF50;
+    --mdc-snackbar-supporting-text-color: white;
+    --mat-snack-bar-button-color: white;
+  }
+  
+  &.toast-error {
+    --mdc-snackbar-container-color: #F44336;
+    --mdc-snackbar-supporting-text-color: white;
+    --mat-snack-bar-button-color: white;
+  }
+  
+  &.toast-warning {
+    --mdc-snackbar-container-color: #FF9800;
+    --mdc-snackbar-supporting-text-color: white;
+    --mat-snack-bar-button-color: white;
+  }
+  
+  &.toast-info {
+    --mdc-snackbar-container-color: #2196F3;
+    --mdc-snackbar-supporting-text-color: white;
+    --mat-snack-bar-button-color: white;
+  }
+}
+// RTL support
+[dir="rtl"] {
+  .mat-drawer-container {
+    direction: rtl;
+  }
+  
+  .mat-form-field {
+    .mat-mdc-text-field-wrapper {
+      padding-left: 0;
+      padding-right: 12px;
+    }
+    
+    .mat-mdc-form-field-icon-prefix {
+      padding-left: 12px;
+      padding-right: 0;
+    }
+    
+    .mat-mdc-form-field-icon-suffix {
+      padding-left: 0;
+      padding-right: 12px;
+    }
+  }
+  
+  .mat-mdc-table {
+    th, td {
+      text-align: right;
+    }
+  }
+  
+  .mat-mdc-menu-panel {
+    direction: rtl;
+  }
+}
