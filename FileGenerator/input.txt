@@ -1,0 +1,1543 @@
+Step 1: Domain Layer - Domain Event Definition
+csharp
+
+Collapse
+ذخیره
+کپی
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+59
+60
+61
+62
+63
+64
+65
+66
+67
+68
+69
+70
+71
+72
+73
+74
+// Domain/Events/ChecklistCreatedDomainEvent.cs
+using SharedKernel;
+
+namespace Domain.Events;
+
+/// <summary>
+/// Domain event raised when a new checklist is created.
+/// This event is part of the domain model and should be used for:
+/// - Audit logging
+/// - Real-time notifications
+/// - Integration events
+/// - Cache invalidation
+/// </summary>
+public sealed record ChecklistCreatedDomainEvent : IDomainEvent
+{
+    /// <summary>
+    /// Unique identifier for this event (for idempotency)
+    /// </summary>
+    public Guid EventId { get; init; } = Guid.NewGuid();
+    
+    /// <summary>
+    /// UTC timestamp when the event occurred
+    /// </summary>
+    public DateTime OccurredAtUtc { get; init; } = DateTime.UtcNow;
+    
+    /// <summary>
+    /// Sequence number for ordering events from the same aggregate
+    /// </summary>
+    public int EventSequence { get; init; } = 1;
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // Checklist Properties
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    public Guid ChecklistId { get; init; }
+    public string Title { get; init; } = string.Empty;
+    public int Version { get; init; }
+    public bool IsActive { get; init; }
+    public bool IsValid { get; init; }
+    public float TotalScore { get; init; }
+    public int GroupCount { get; init; }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // Audit Properties
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    public Guid? CreatedById { get; init; }
+    public string? CreatedByName { get; init; }
+    public DateTime CreatedAtUtc { get; init; }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // Metadata for tracking and debugging
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    /// <summary>
+    /// Correlation ID for tracing the event through the system
+    /// </summary>
+    public Guid CorrelationId { get; init; } = Guid.NewGuid();
+    
+    /// <summary>
+    /// Causation ID - links to the command that caused this event
+    /// </summary>
+    public Guid? CausationId { get; init; }
+    
+    /// <summary>
+    /// Source application that generated this event
+    /// </summary>
+    public string Source { get; init; } = "ChecklistService";
+    
+    /// <summary>
+    /// Event version for schema evolution
+    /// </summary>
+    public int EventVersion { get; init; } = 1;
+}
+csharp
+
+Collapse
+ذخیره
+کپی
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+// Domain/Events/ChecklistUpdatedDomainEvent.cs
+namespace Domain.Events;
+
+public sealed record ChecklistUpdatedDomainEvent : IDomainEvent
+{
+    public Guid EventId { get; init; } = Guid.NewGuid();
+    public DateTime OccurredAtUtc { get; init; } = DateTime.UtcNow;
+    public int EventSequence { get; init; } = 1;
+    
+    // Checklist identification
+    public Guid ChecklistId { get; init; }
+    public string Title { get; init; } = string.Empty;
+    public int Version { get; init; }
+    public int PreviousVersion { get; init; }
+    public bool IsActive { get; init; }
+    public bool IsValid { get; init; }
+    public float TotalScore { get; init; }
+    public int GroupCount { get; init; }
+    
+    // What changed
+    public ChecklistChangeType ChangeType { get; init; }
+    public IReadOnlyList<string> ChangedFields { get; init; } = [];
+    
+    // Audit
+    public Guid? UpdatedById { get; init; }
+    public string? UpdatedByName { get; init; }
+    public DateTime UpdatedAtUtc { get; init; }
+    
+    // Metadata
+    public Guid CorrelationId { get; init; } = Guid.NewGuid();
+    public Guid? CausationId { get; init; }
+    public string Source { get; init; } = "ChecklistService";
+    public int EventVersion { get; init; } = 1;
+}
+
+public enum ChecklistChangeType
+{
+    StructureChanged,
+    TitleChanged,
+    StatusChanged,
+    GroupsReordered,
+    QuestionsModified
+}
+Step 2: Application Layer - Event Handler Interface
+csharp
+
+Collapse
+ذخیره
+کپی
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+// Application/Common/Messaging/IDomainEventHandler.cs
+using SharedKernel;
+
+namespace Application.Common.Messaging;
+
+/// <summary>
+/// Marker interface for domain event handlers
+/// </summary>
+public interface IDomainEventHandler<in TEvent> : IDomainEventHandler 
+    where TEvent : IDomainEvent
+{
+    Task HandleAsync(TEvent domainEvent, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Base interface for all domain event handlers
+/// </summary>
+public interface IDomainEventHandler
+{
+    /// <summary>
+    /// Determines the order in which handlers are executed.
+    /// Lower numbers execute first.
+    /// </summary>
+    int Order { get; }
+    
+    /// <summary>
+    /// Whether to continue processing other handlers if this one fails
+    /// </summary>
+    bool ContinueOnError { get; }
+}
+Step 3: Application Layer - Checklist Event Handler
+csharp
+
+Collapse
+ذخیره
+کپی
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+59
+60
+61
+62
+63
+64
+65
+66
+67
+68
+69
+70
+71
+72
+73
+74
+75
+76
+77
+78
+79
+80
+81
+82
+83
+// Application/Checklists/Events/ChecklistCreatedEventHandler.cs
+using System.Text.Json;
+using Application.Common.Interfaces.Infrastructure;
+using Application.Common.Messaging;
+using Domain.Events;
+using Microsoft.Extensions.Logging;
+using SharedKernel;
+
+namespace Application.Checklists.Events;
+
+/// <summary>
+/// Handles ChecklistCreatedDomainEvent by publishing to the domain event channel
+/// for async processing by the background service.
+/// 
+/// This handler is responsible ONLY for capturing the event and placing it
+/// in the channel. Actual notification delivery is handled by DomainEventDispatcherService.
+/// </summary>
+public sealed class ChecklistCreatedEventHandler : IDomainEventHandler<ChecklistCreatedDomainEvent>
+{
+    private readonly IDomainEventChannel _domainEventChannel;
+    private readonly ILogger<ChecklistCreatedEventHandler> _logger;
+    
+    public int Order => 1; // Execute early
+    public bool ContinueOnError => true;
+
+    public ChecklistCreatedEventHandler(
+        IDomainEventChannel domainEventChannel,
+        ILogger<ChecklistCreatedEventHandler> logger)
+    {
+        _domainEventChannel = domainEventChannel;
+        _logger = logger;
+    }
+
+    public async Task HandleAsync(
+        ChecklistCreatedDomainEvent domainEvent, 
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation(
+                "ChecklistCreated event received: {ChecklistId}, Title: {Title}, CorrelationId: {CorrelationId}",
+                domainEvent.ChecklistId,
+                domainEvent.Title,
+                domainEvent.CorrelationId);
+
+            // Create a serializable notification payload
+            var notification = new ChecklistNotificationPayload
+            {
+                EventType = "ChecklistCreated",
+                EventId = domainEvent.EventId,
+                ChecklistId = domainEvent.ChecklistId,
+                Title = domainEvent.Title,
+                Version = domainEvent.Version,
+                IsActive = domainEvent.IsActive,
+                IsValid = domainEvent.IsValid,
+                TotalScore = domainEvent.TotalScore,
+                GroupCount = domainEvent.GroupCount,
+                CreatedById = domainEvent.CreatedById,
+                CreatedByName = domainEvent.CreatedByName,
+                CreatedAtUtc = domainEvent.CreatedAtUtc,
+                CorrelationId = domainEvent.CorrelationId,
+                OccurredAtUtc = domainEvent.OccurredAtUtc
+            };
+
+            // Write to channel for async processing
+            await _domainEventChannel.WriteAsync(notification, cancellationToken);
+            
+            _logger.LogDebug(
+                "ChecklistCreated event published to channel: {ChecklistId}",
+                domainEvent.ChecklistId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Failed to publish ChecklistCreated event to channel: {ChecklistId}",
+                domainEvent.ChecklistId);
+            
+            // Re-throw to allow retry or dead-letter handling
+            throw;
+        }
+    }
+}
+Step 4: Infrastructure Layer - Channel Implementation
+csharp
+
+Collapse
+ذخیره
+کپی
+81
+82
+83
+84
+85
+86
+87
+88
+89
+90
+91
+92
+93
+94
+95
+96
+97
+98
+99
+100
+101
+102
+103
+104
+105
+106
+107
+108
+109
+110
+111
+112
+113
+114
+115
+116
+117
+118
+119
+120
+121
+122
+123
+124
+125
+126
+127
+// Infrastructure/Messaging/DomainEventChannel.cs
+                    "Channel is closed, cannot write notification: {EventType}",
+                    notification.EventType);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                exceptionList.Add(ex);
+                retryCount++;
+                
+                _logger.LogWarning(
+                    ex,
+                    "Channel write failed, retry {RetryCount}/{MaxRetries}: {EventType}",
+                    retryCount, MaxRetries, notification.EventType);
+                
+                if (retryCount < MaxRetries)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(100 * retryCount), cancellationToken);
+                }
+            }
+        }
+
+        // All retries exhausted
+        throw new InvalidOperationException(
+            $"Failed to write notification after {MaxRetries} retries",
+            exceptionList.FirstOrDefault());
+    }
+
+    /// <summary>
+    /// Gets the reader for consuming notifications.
+    /// </summary>
+    public ChannelReader<DomainEventNotification> Reader => _channel.Reader;
+
+    /// <summary>
+    /// Marks the channel as complete. No more items can be written.
+    /// </summary>
+    public void Complete() => _channel.Writer.Complete();
+
+    /// <summary>
+    /// Gets the current count of items in the channel.
+    /// </summary>
+    public int Count => _channel.Reader.Count;
+
+    /// <summary>
+    /// Checks if the channel is empty.
+    /// </summary>
+    public bool IsEmpty => _channel.Reader.Count == 0;
+}
+csharp
+
+Collapse
+ذخیره
+کپی
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+// Application/Common/Interfaces/Infrastructure/IDomainEventChannel.cs
+using Application.Common.DTOs.Notifications;
+
+namespace Application.Common.Interfaces.Infrastructure;
+
+/// <summary>
+/// Interface for the domain event channel used to publish notifications
+/// for async processing.
+/// </summary>
+public interface IDomainEventChannel
+{
+    /// <summary>
+    /// Asynchronously writes a notification to the channel.
+    /// </summary>
+    Task WriteAsync(DomainEventNotification notification, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Gets the channel reader for consuming notifications.
+    /// </summary>
+    ChannelReader<DomainEventNotification> Reader { get; }
+    
+    /// <summary>
+    /// Marks the channel as complete.
+    /// </summary>
+    void Complete();
+    
+    /// <summary>
+    /// Gets the current count of items in the channel.
+    /// </summary>
+    int Count { get; }
+    
+    /// <summary>
+    /// Checks if the channel is empty.
+    /// </summary>
+    bool IsEmpty { get; }
+}
+Step 5: Infrastructure Layer - Notification DTO
+csharp
+
+Collapse
+ذخیره
+کپی
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+59
+60
+61
+62
+63
+64
+65
+66
+67
+68
+69
+70
+71
+72
+73
+74
+75
+76
+77
+78
+79
+80
+81
+82
+83
+84
+85
+86
+87
+88
+89
+90
+91
+92
+93
+94
+95
+96
+97
+98
+99
+100
+101
+102
+103
+104
+105
+106
+107
+108
+109
+110
+111
+112
+113
+114
+115
+116
+117
+118
+119
+120
+121
+122
+123
+124
+125
+126
+127
+128
+129
+130
+131
+// Application/Common/DTOs/Notifications/DomainEventNotification.cs
+namespace Application.Common.DTOs.Notifications;
+
+/// <summary>
+/// Unified notification payload for all domain events.
+/// This DTO is serialized and sent to the NotificationAPI.
+/// </summary>
+public sealed class DomainEventNotification
+{
+    // ═══════════════════════════════════════════════════════════════════════
+    // Event Identification
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    /// <summary>
+    /// Type of the event (e.g., "ChecklistCreated", "ChecklistUpdated")
+    /// </summary>
+    public required string EventType { get; init; }
+    
+    /// <summary>
+    /// Unique identifier for this notification
+    /// </summary>
+    public Guid EventId { get; init; } = Guid.NewGuid();
+    
+    /// <summary>
+    /// UTC timestamp when the event occurred
+    /// </summary>
+    public DateTime OccurredAtUtc { get; init; } = DateTime.UtcNow;
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // Correlation & Tracing
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    /// <summary>
+    /// Correlation ID for distributed tracing
+    /// </summary>
+    public Guid CorrelationId { get; init; } = Guid.NewGuid();
+    
+    /// <summary>
+    /// Causation ID - links to the command that caused this event
+    /// </summary>
+    public Guid? CausationId { get; init; }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // Event-Specific Data (polymorphic via JSON)
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    /// <summary>
+    /// The entity ID this event relates to
+    /// </summary>
+    public Guid EntityId { get; init; }
+    
+    /// <summary>
+    /// Type of the entity (e.g., "Checklist", "Assessment")
+    /// </summary>
+    public string EntityType { get; init; } = string.Empty;
+    
+    /// <summary>
+    /// Additional event-specific data as JSON
+    /// </summary>
+    public string? Payload { get; init; }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // Target & Routing
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    /// <summary>
+    /// Target audience for this notification
+    /// </summary>
+    public NotificationTarget Target { get; init; } = NotificationTarget.All;
+    
+    /// <summary>
+    /// Specific user IDs to notify (for targeted notifications)
+    /// </summary>
+    public IReadOnlyList<Guid>? TargetUserIds { get; init; }
+    
+    /// <summary>
+    /// Specific roles to notify (for role-based notifications)
+    /// </summary>
+    public IReadOnlyList<string>? TargetRoles { get; init; }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // Priority & Delivery
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    /// <summary>
+    /// Notification priority level
+    /// </summary>
+    public NotificationPriority Priority { get; init; } = NotificationPriority.Normal;
+    
+    /// <summary>
+    /// Number of delivery attempts made
+    /// </summary>
+    public int DeliveryAttempts { get; set; }
+    
+    /// <summary>
+    /// When the notification expires (null = never)
+    /// </summary>
+    public DateTime? ExpiresAtUtc { get; init; }
+}
+
+/// <summary>
+/// Notification target audience
+/// </summary>
+public enum NotificationTarget
+{
+    /// <summary>All connected users</summary>
+    All,
+    
+    /// <summary>Only administrators</summary>
+    Admins,
+    
+    /// <summary>Specific users only</summary>
+    SpecificUsers,
+    
+    /// <summary>Users with specific roles</summary>
+    SpecificRoles,
+    
+    /// <summary>Users related to the entity (e.g., creator, assignees)</summary>
+    RelatedUsers
+}
+
+/// <summary>
+/// Notification priority levels
+/// </summary>
+public enum NotificationPriority
+{
+    Low = 0,
+    Normal = 1,
+    High = 2,
+    Critical = 3
+}
+csharp
+
+Collapse
+ذخیره
+کپی
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+59
+60
+61
+62
+63
+64
+65
+66
+67
+68
+69
+70
+71
+72
+73
+74
+75
+76
+77
+78
+79
+80
+81
+82
+83
+84
+85
+86
+87
+// Application/Common/DTOs/Notifications/ChecklistNotificationPayload.cs
+namespace Application.Common.DTOs.Notifications;
+
+/// <summary>
+/// Specific payload for checklist-related notifications
+/// </summary>
+public sealed class ChecklistNotificationPayload
+{
+    // ═══════════════════════════════════════════════════════════════════════
+    // Event Identification
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    public required string EventType { get; init; }
+    public Guid EventId { get; init; } = Guid.NewGuid();
+    public DateTime OccurredAtUtc { get; init; } = DateTime.UtcNow;
+    public Guid CorrelationId { get; init; } = Guid.NewGuid();
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // Checklist Data
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    public Guid ChecklistId { get; init; }
+    public required string Title { get; init; }
+    public int Version { get; init; }
+    public bool IsActive { get; init; }
+    public bool IsValid { get; init; }
+    public float TotalScore { get; init; }
+    public int GroupCount { get; init; }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // Audit
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    public Guid? CreatedById { get; init; }
+    public string? CreatedByName { get; init; }
+    public DateTime CreatedAtUtc { get; init; }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // Conversion to DomainEventNotification
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    public DomainEventNotification ToNotification()
+    {
+        return new DomainEventNotification
+        {
+            EventType = EventType,
+            EventId = EventId,
+            OccurredAtUtc = OccurredAtUtc,
+            CorrelationId = CorrelationId,
+            EntityId = ChecklistId,
+            EntityType = "Checklist",
+            Payload = System.Text.Json.JsonSerializer.Serialize(this),
+            Target = DetermineTarget(),
+            TargetUserIds = GetTargetUserIds(),
+            TargetRoles = GetTargetRoles(),
+            Priority = DeterminePriority(),
+            ExpiresAtUtc = OccurredAtUtc.AddDays(7)
+        };
+    }
+    
+    private NotificationTarget DetermineTarget()
+    {
+        // Notify admins for checklist creation
+        return NotificationTarget.Admins;
+    }
+    
+    private IReadOnlyList<Guid>? GetTargetUserIds()
+    {
+        if (CreatedById.HasValue)
+        {
+            return [CreatedById.Value];
+        }
+        return null;
+    }
+    
+    private IReadOnlyList<string>? GetTargetRoles()
+    {
+        return ["Admin", "ChecklistManager"];
+    }
+    
+    private NotificationPriority DeterminePriority()
+    {
+        return EventType.Contains("Created") 
+            ? NotificationPriority.Normal 
+            : NotificationPriority.High;
+    }
+}
+Step 6: Infrastructure Layer - Background Service
+csharp
+
+Collapse
+ذخیره
+کپی
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+// Infrastructure/Messaging/DomainEventDispatcherService.cs
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Application.Common.DTOs.Notifications;
+using Application.Common.Interfaces.Infrastructure;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+namespace Infrastructure.Messaging;
+
+/// <summary>
+/// Background service that consumes domain events from the channel
+/// and sends them to the NotificationAPI for real-time delivery.
+///
+/// This service runs as a singleton and uses the channel for
+/// lock-free, high-performance communication with scoped services.
+/// </summary>
+public sealed class DomainEventDispatcherService : BackgroundService
+{
+    private readonly IDomainEventChannel _channel;
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<DomainEventDispatcherService> _logger;
+    private readonly NotificationApiOptions _options;
+    
+    // Circuit breaker state
+    private readonly SemaphoreSlim _circuitBreaker = new(1, 1);
+    private DateTime _circuitOpenedAt = DateTime.MinValue;
+    private const int CircuitBreakerDurationSeconds = 30;
+    private const int MaxRetries = 3;
+    private const int RetryDelayMs = 1000;
+
+    public DomainEventDispatcherService(
+csharp
+
+Collapse
+ذخیره
+کپی
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+// Infrastructure/Messaging/NotificationApiOptions.cs
+namespace Infrastructure.Messaging;
+
+/// <summary>
+/// Configuration options for the NotificationAPI integration
+/// </summary>
+public sealed class NotificationApiOptions
+{
+    public const string SectionName = "NotificationApi";
+    
+    /// <summary>
+    /// Base URL of the NotificationAPI
+    /// </summary>
+    public required string BaseUrl { get; init; }
+    
+    /// <summary>
+    /// API key for authentication with NotificationAPI
+    /// </summary>
+    public required string ApiKey { get; init; }
+    
+    /// <summary>
+    /// Timeout for HTTP requests in seconds
+    /// </summary>
+    public int TimeoutSeconds { get; init; } = 30;
+    
+    /// <summary>
+    /// Number of retry attempts for failed requests
+    /// </summary>
+    public int MaxRetries { get; init; } = 3;
+    
+    /// <summary>
+    /// Endpoint configuration
+    /// </summary>
+    public EndpointsOptions Endpoints { get; init; } = new();
+}
+
+public sealed class EndpointsOptions
+{
+    /// <summary>
+    /// Endpoint for sending notifications
+    /// </summary>
+    public string Notifications { get; init; } = "/api/notifications/events";
+    
+    /// <summary>
+    /// Health check endpoint
+    /// </summary>
+    public string Health { get; init; } = "/health";
+    
+    /// <summary>
+    /// Endpoint for batch notifications
+    /// </summary>
+    public string BatchNotifications { get; init; } = "/api/notifications/events/batch";
+}
+Step 7: Update Command Handler to Raise Domain Event
+csharp
+
+Collapse
+ذخیره
+کپی
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+// Application/Checklists/Create/CreateChecklistCommandHandler.cs
+using Application.Common.DTOs.Checklists;
+using Application.Common.Interfaces.Checklists;
+using Application.Common.Interfaces.Core;
+using Application.Common.Messaging;
+using AutoMapper;
+using Domain.Aggregates.Checklists;
+using Domain.Events;
+using SharedKernel;
+
+namespace Application.Checklists.Create;
+
+internal sealed class CreateChecklistCommandHandler(
+    IApplicationDbContext context,
+    IChecklistRepository repository,
+    IMapper mapper,
+    ICurrentUserService currentUserService)
+    : ICommandHandler<CreateChecklistCommand, Guid>
+{
+    public async Task<Result<Guid>> Handle(
+        CreateChecklistCommand command, 
+        CancellationToken cancellationToken)
+    {
+        // 1. Create checklist entity
+        var checklist = mapper.Map<Checklist>(command);
+        
+        // 2. Set audit properties
+        checklist.SetCreatedBy(currentUserService.UserId);
+        
+        // 3. Add to repository
+        await repository.AddAsync(checklist, cancellationToken);
+        
+        // 4. Raise domain event for audit logging and async operations
+        // The event will be captured by SaveChangesAsync and dispatched
+        checklist.AddDomainEvent(new ChecklistCreatedDomainEvent
+        {
+            ChecklistId = checklist.Id,
+            Title = checklist.Title,
+            Version = checklist.Version,
+            IsActive = checklist.IsActive,
+            IsValid = checklist.IsValid,
+            TotalScore = checklist.TotalScore,
+            GroupCount = checklist.Groups?.Count ?? 0,
+            CreatedById = currentUserService.UserId,
+            CreatedByName = currentUserService.UserName,
+            CreatedAtUtc = checklist.CreatedAt,
+            EventSequence = 1
+        });
+        
+        // 5. Save changes (this triggers domain event dispatch)
+        await context.SaveChangesAsync(cancellationToken);
+        
+        return checklist.Id;
+    }
+}
+Step 8: NotificationAPI - Controller
+csharp
+
+Collapse
+ذخیره
+کپی
+54
+55
+56
+57
+58
+59
+60
+61
+62
+63
+64
+65
+66
+67
+68
+69
+70
+71
+72
+73
+74
+75
+76
+77
+78
+79
+80
+81
+82
+83
+84
+85
+86
+87
+88
+89
+90
+91
+92
+93
+94
+95
+96
+97
+98
+99
+100
+101
+102
+103
+104
+105
+106
+107
+108
+109
+110
+111
+112
+113
+114
+// NotificationApi.Api/Controllers/NotificationsController.cs
+            // Broadcast via SignalR
+            await _notificationService.BroadcastAsync(notification, cancellationToken);
+            
+            return Accepted(new
+            {
+                message = "Notification accepted for processing",
+                eventId = notification.EventId,
+                correlationId
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to process notification: {EventId}", notification.EventId);
+            return StatusCode(500, new { error = "Failed to process notification" });
+        }
+    }
+
+    /// <summary>
+    /// Receives batch of domain events
+    /// </summary>
+    [HttpPost("events/batch")]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ReceiveBatchEvents(
+        [FromBody] IReadOnlyList<DomainEventNotificationDto> notifications,
+        CancellationToken cancellationToken)
+    {
+        if (!ValidateApiKey())
+        {
+            return Unauthorized(new { error = "Invalid API key" });
+        }
+
+        if (notifications == null || notifications.Count == 0)
+        {
+            return BadRequest(new { error = "No notifications provided" });
+        }
+
+        _logger.LogInformation("Received batch of {Count} notifications", notifications.Count);
+
+        var tasks = notifications.Select(n => 
+            _notificationService.BroadcastAsync(n, cancellationToken));
+
+        await Task.WhenAll(tasks);
+
+        return Accepted(new
+        {
+            message = $"Accepted {notifications.Count} notifications",
+            count = notifications.Count
+        });
+    }
+
+    private bool ValidateApiKey()
+    {
+        var apiKey = Request.Headers["X-Api-Key"].FirstOrDefault();
+        var expectedKey = Environment.GetEnvironmentVariable("NOTIFICATION_API_KEY");
+        
+        return !string.IsNullOrEmpty(apiKey) && 
+               !string.IsNullOrEmpty(expectedKey) && 
+               apiKey == expectedKey;
+    }
+}
+Step 9: NotificationAPI - SignalR Hub
